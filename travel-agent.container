@@ -1,0 +1,40 @@
+[Unit]
+Description=Travel Agent Chat (FastAPI + Pi)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=localhost/travel-agent:latest
+ContainerName=travel-agent
+
+# Port - localhost only, Cloudflare Tunnel handles external access
+PublishPort=127.0.0.1:8091:8091
+
+# Mount travel skills (read-only for safety)
+Volume=/home/ubuntu/.hermes/skills/travel:/app/travel:ro
+
+# Mount the web app + Pi skill
+Volume=/home/ubuntu/.hermes/skills/travel/travel-agent/web/app.py:/app/web/app.py:ro
+Volume=/home/ubuntu/.hermes/skills/travel/travel-agent/web/pi-skill.md:/app/web/pi-skill.md:ro
+
+# Mount .env for API keys
+Volume=/home/ubuntu/.hermes/.env:/app/.env:ro
+
+# Mount Pi config from host (needs read-write for session locks)
+Volume=/home/ubuntu/.pi:/root/.pi
+
+# Environment
+Environment=HOME=/root
+Environment=PI_PROVIDER=zai
+Environment=PI_MODEL=glm-5-turbo
+Environment=ZAI_API_KEY=7e41ed7a82274cc3844fd28a6e51fa82.f27g2vYEPnZseZiL
+
+Pull=never
+
+[Service]
+Restart=always
+RestartSec=10
+TimeoutStartSec=60
+
+[Install]
+WantedBy=default.target
