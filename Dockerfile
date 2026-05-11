@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN npm install -g @mariozechner/pi-coding-agent
 
 # Python deps
-RUN pip install --no-cache-dir fastapi uvicorn
+RUN pip install --no-cache-dir fastapi uvicorn python-docx
 
 # Create app dir
 WORKDIR /app

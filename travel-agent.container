@@ -23,6 +23,10 @@ Volume=/home/ubuntu/.hermes/.env:/app/.env:ro
 # Mount Pi config from host (needs read-write for session locks)
 Volume=/home/ubuntu/.pi:/root/.pi
 
+# Mount himalaya for email
+Volume=/home/ubuntu/.hermes/workspace/bin/himalaya:/usr/local/bin/himalaya:ro
+Volume=/home/ubuntu/.config/himalaya:/root/.config/himalaya:ro
+
 # Environment
 Environment=HOME=/root
 Environment=PI_PROVIDER=zai
