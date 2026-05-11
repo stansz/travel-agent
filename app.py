@@ -167,6 +167,7 @@ HTML_PAGE = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Travel Agent ✈️</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; display: flex; flex-direction: column; height: 100vh; }
@@ -182,6 +183,13 @@ header span { font-size: 24px; }
 .msg.agent li { margin: 2px 0; }
 .msg.agent code { background: #0f172a; padding: 1px 6px; border-radius: 4px; font-size: 0.9em; font-family: 'SF Mono', Monaco, monospace; }
 .msg.agent pre { background: #0f172a; padding: 8px 12px; border-radius: 8px; overflow-x: auto; margin: 4px 0; font-size: 0.85em; }
+.msg.agent table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 0.85em; }
+.msg.agent th, .msg.agent td { border: 1px solid #334155; padding: 6px 10px; text-align: left; }
+.msg.agent th { background: #1a2035; font-weight: 600; }
+.msg.agent a { color: #60a5fa; }
+.msg.agent blockquote { border-left: 3px solid #334155; margin: 4px 0; padding-left: 12px; color: #94a3b8; }
+.msg.agent img { max-width: 100%; border-radius: 8px; }
+.msg.agent hr { border: none; border-top: 1px solid #334155; margin: 8px 0; }
 .msg.loading { align-self: flex-start; color: #64748b; font-style: italic; }
 .msg-actions { margin-top: 10px; display: flex; gap: 8px; opacity: 0; transition: opacity 0.2s; }
 .msg:hover .msg-actions, .msg-actions.show { opacity: 1; }
@@ -254,13 +262,11 @@ let emailTargetText = '';
 function addMsg(text, role) {
   const div = document.createElement('div');
   div.className = 'msg ' + role;
-  div.innerHTML = text.replace(/\\n/g, '<br>');
-  div.innerHTML = div.innerHTML
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    .replace(/^\\* (.+)$/gm, '• $1')
-    .replace(/^- (.+)$/gm, '• $1');
+  if (role === 'agent') {
+    div.innerHTML = marked.parse(text);
+  } else {
+    div.textContent = text;
+  }
   
   if (role === 'agent' && text.length > 10) {
     const rawText = text;
