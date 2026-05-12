@@ -491,10 +491,10 @@ header .tab.active { color: #e2e8f0; background: #0f172a; border-color: #334155;
 
     <div class="preset-buttons" id="presets">
       <button onclick="ask('Show me YVR flight deals')">🎫 YVR Deals</button>
-      <button id="dyn1" onclick="ask('')"></button>
-      <button id="dyn2" onclick="ask('')"></button>
-      <button id="dyn3" onclick="ask('')"></button>
-      <button id="dyn4" onclick="ask('')"></button>
+      <button id="dyn1" onclick="ask('Flights from YVR to Tokyo')">🇯🇵 Tokyo Flights</button>
+      <button id="dyn2" onclick="ask('Weather in Bangkok this week')">🌤️ Bangkok</button>
+      <button id="dyn3" onclick="ask('Travel advisory for Thailand')">⚠️ Thailand</button>
+      <button id="dyn4" onclick="ask('What to see in Japan? WikiVoyage')">📖 Japan Guide</button>
       <button onclick="ask('Recommend me a trip for this summer, budget friendly')">🧳 Recommend a Trip</button>
       <button onclick="ask('What are some fun unique trips from Vancouver? Search Reddit')">🔍 Reddit Trips</button>
       <button onclick="ask('Show me cruise deals from Canada')">🚢 Cruise Deals</button>
@@ -860,18 +860,20 @@ const DYN_PROMPTS = [
 ];
 
 function shufflePrompts() {
-  const pool = [...DYN_PROMPTS];
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
-  }
-  for (let i = 1; i <= 4; i++) {
-    const p = pool[i - 1];
-    const btn = document.getElementById('dyn' + i);
-    if (!btn) continue;
-    btn.textContent = p.emoji + ' ' + p.label;
-    btn.onclick = function() { ask(p.ask); };
-  }
+  try {
+    const pool = [...DYN_PROMPTS];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    for (let i = 1; i <= 4; i++) {
+      const p = pool[i - 1];
+      const btn = document.getElementById('dyn' + i);
+      if (!btn) continue;
+      btn.textContent = p.emoji + ' ' + p.label;
+      btn.onclick = function() { ask(p.ask); };
+    }
+  } catch(e) { console.error('shufflePrompts:', e); }
 }
 
 refreshSessions();
