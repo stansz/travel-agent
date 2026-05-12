@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir fastapi uvicorn python-docx
 WORKDIR /app
 
 # Mount point for travel skills (read-only)
-RUN mkdir -p /app/travel
+RUN mkdir -p /app/travel /app/data
 
 EXPOSE 8091
 

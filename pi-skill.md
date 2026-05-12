@@ -76,6 +76,26 @@ All commands run through: `python3 /app/travel/travel-agent/scripts/travel.py <s
 `travel.py phrases <country>`
 → Essential travel phrases (LibreTranslate)
 
+### Reddit Travel Search (NEW)
+`travel.py reddit "<query>" [--subreddits travel+solotravel] [--sort relevance] [--time year] [--limit 8]`
+→ Search r/travel, r/solotravel, r/travelhacks for trip reports, itineraries, tips
+   Examples: `travel.py reddit "Kyoto 3 day itinerary"`, `travel.py reddit "solo female Europe" -r solotravel`
+
+### WikiVoyage Guide (NEW)
+`travel.py wikivoyage "<destination>"`
+→ Fetch destination guide summary from WikiVoyage (sights, food, transport, culture)
+   Examples: `travel.py wikivoyage "Bangkok"`, `travel.py wikivoyage "Kyoto"`
+
+### Cruise Deals for Canadians (NEW)
+`travel.py cruise [--query "Alaska"] [--limit 10]`
+→ Searches web for cruise deals available to Canadians (CAD pricing, Canadian travel sites)
+   Examples: `travel.py cruise`, `travel.py cruise -q "Caribbean fall 2026"`
+
+### Trip Recommendations (NEW)
+`travel.py recommend [--style beach] [--month June] [--budget 2000]`
+→ Discover destinations by trip style, season, and budget (searches Reddit travel threads)
+   Examples: `travel.py recommend -s adventure -m December`, `travel.py recommend -b 1500`
+
 ## Rules
 
 1. ALWAYS run the appropriate travel.py command. Never say you don't have real data.
