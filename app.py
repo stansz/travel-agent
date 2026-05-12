@@ -389,6 +389,7 @@ header .tab:hover { color: #e2e8f0; background: #0f172a; }
 header .tab.active { color: #e2e8f0; background: #0f172a; border-color: #334155; }
 #chat-view, #translate-view { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
 #translate-view { padding: 24px; gap: 16px; align-items: center; }
+.hidden-view { display: none !important; }
 .translate-box { width: 100%; max-width: 600px; display: flex; flex-direction: column; gap: 12px; }
 .translate-box .lang-row { display: flex; align-items: center; gap: 10px; }
 .translate-box select { padding: 7px 12px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 13px; cursor: pointer; }
@@ -516,7 +517,7 @@ header .tab.active { color: #e2e8f0; background: #0f172a; border-color: #334155;
     </div>
     </div>
 
-    <div id="translate-view" style="display:none;">
+    <div id="translate-view" class="hidden-view">
       <div class="translate-box">
         <div class="lang-row">
           <select id="srcLang"><option value="auto">Auto-detect</option></select>
@@ -794,12 +795,12 @@ function switchTab(tab) {
   var cv = document.getElementById('chat-view');
   var tv = document.getElementById('translate-view');
   if (tab === 'chat') {
-    cv.style.display = '';
-    tv.style.display = 'none';
+    cv.classList.remove('hidden-view');
+    tv.classList.add('hidden-view');
     document.getElementById('input').focus();
   } else {
-    cv.style.display = 'none';
-    tv.style.display = 'flex';
+    cv.classList.add('hidden-view');
+    tv.classList.remove('hidden-view');
     loadLanguages();
     document.getElementById('trInput').focus();
   }
