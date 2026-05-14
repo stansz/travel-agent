@@ -17,12 +17,24 @@ import re
 
 app = FastAPI(title="Travel Agent")
 
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class NoCacheMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        return response
+
+app.add_middleware(NoCacheMiddleware)
+
 PI_CMD = "pi"
 PI_PROVIDER = os.environ.get("PI_PROVIDER", "zai")
 PI_MODEL = os.environ.get("PI_MODEL", "glm-5-turbo")
 PI_SKILL = "/app/web/pi-skill.md"
 HIMALAYA = os.environ.get("HIMALAYA", "himalaya")
 DB_PATH = "/app/data/sessions.db"
+LT_PORT = os.environ.get("LT_PORT", "5000")
 
 os.makedirs("/app/data", exist_ok=True)
 
@@ -34,9 +46,10 @@ with open(PI_SKILL) as f:
 
 
 def get_db() -> sqlite3.Connection:
-    db = sqlite3.connect(DB_PATH)
+    db = sqlite3.connect(DB_PATH, timeout=10)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA busy_timeout=5000")
     db.execute("PRAGMA foreign_keys=ON")
     return db
 
@@ -136,6 +149,35 @@ async def index():
     return HTMLResponse(HTML_PAGE)
 
 
+@app.get("/test", response_class=HTMLResponse)
+async def test_page():
+    return HTMLResponse("""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Tab Test</title>
+<style>
+body{font-family:sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:20px;}
+.tab{background:transparent;border:1px solid #334155;color:#94a3b8;padding:8px 16px;cursor:pointer;border-radius:8px;margin-right:4px;}
+.tab.active{background:#2563eb;color:#fff;border-color:#2563eb;}
+.view{padding:20px;margin-top:12px;border-radius:8px;background:#1e293b;}
+.hidden{display:none!important;}
+</style></head><body>
+<h2>Tab Test</h2>
+<button class="tab active" id="tb-chat" onclick="sw('chat')">Chat</button>
+<button class="tab" id="tb-translate" onclick="sw('translate')">Translate</button>
+<div id="v-chat" class="view">✅ Chat view — you should see this by default</div>
+<div id="v-translate" class="view hidden">✅ Translate view — this should appear when you click Translate</div>
+<script>
+function sw(t){
+ document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active')});
+ document.getElementById('tb-'+t).classList.add('active');
+ document.getElementById('v-chat').classList.toggle('hidden',t!=='chat');
+ document.getElementById('v-translate').classList.toggle('hidden',t!=='translate');
+ console.log('switched to',t);
+}
+console.log('test page loaded');
+</script>
+</body></html>""")
+
+
 @app.post("/chat")
 async def chat(request: Request):
     body = await request.json()
@@ -218,7 +260,7 @@ async def get_languages():
     import urllib.request
     import json
     try:
-        req = urllib.request.Request("http://127.0.0.1:5000/languages")
+        req = urllib.request.Request(f"http://127.0.0.1:{LT_PORT}/languages")
         with urllib.request.urlopen(req, timeout=5) as resp:
             return JSONResponse(json.loads(resp.read()))
     except Exception as e:
@@ -239,7 +281,7 @@ async def translate_text(request: Request):
     try:
         payload = json.dumps({"q": text, "source": source, "target": target, "format": "text"}).encode()
         req = urllib.request.Request(
-            "http://127.0.0.1:5000/translate",
+            f"http://127.0.0.1:{LT_PORT}/translate",
             data=payload,
             headers={"Content-Type": "application/json"}
         )
@@ -387,6 +429,8 @@ header .tabs { display: flex; gap: 4px; margin-left: 16px; }
 header .tab { padding: 6px 14px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #64748b; font-size: 13px; cursor: pointer; transition: all 0.15s; }
 header .tab:hover { color: #e2e8f0; background: #0f172a; }
 header .tab.active { color: #e2e8f0; background: #0f172a; border-color: #334155; }
+.lang-btn { background: none; border: 1px solid #334155; border-radius: 6px; color: #64748b; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; margin-left: auto; font-family: inherit; }
+.lang-btn:hover { border-color: #2563eb; color: #e2e8f0; }
 #chat-view, #translate-view { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
 #translate-view { padding: 24px; gap: 16px; align-items: center; }
 .hidden-view { display: none !important; }
@@ -436,9 +480,38 @@ header .tab.active { color: #e2e8f0; background: #0f172a; border-color: #334155;
 .preset-buttons { padding: 8px 20px; display: flex; gap: 8px; flex-wrap: wrap; }
 .preset-buttons button { padding: 5px 12px; border-radius: 16px; border: 1px solid #334155; background: transparent; color: #94a3b8; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .preset-buttons button:hover { background: #1e293b; border-color: #2563eb; color: #e2e8f0; }
-#input-bar { padding: 10px 20px; background: #1e293b; border-top: 1px solid #334155; display: flex; align-items: center; gap: 10px; }
-#input-bar input { flex: 1; padding: 9px 14px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 14px; outline: none; min-width: 0; }
-#input-bar input:focus { border-color: #2563eb; }
+#input-bar { padding: 10px 20px; background: #1e293b; border-top: 1px solid #334155; display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.input-controls { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 600px) {
+  /* Sidebar: overlay with backdrop */
+  #sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; width: 240px; padding-top: 44px; }
+  #sidebar.collapsed { margin-left: -240px; }
+  .sidebar-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 99; }
+  .sidebar-backdrop.show { display: block; }
+  header .hamburger { position: relative; z-index: 101; }
+  /* Header: compact */
+  header { padding: 8px 12px; gap: 6px; }
+  header h1 { font-size: 15px; }
+  header .hamburger { font-size: 14px; padding: 4px 7px; }
+  header .tabs { margin-left: auto; }
+  header .tab { padding: 5px 10px; font-size: 12px; }
+  /* Chat area: less padding */
+  #chat { padding: 12px; }
+  .msg { max-width: 90%; font-size: 13px; }
+  /* Input bar: prominent, two-row */
+  #input-bar { gap: 10px; padding: 10px 12px; flex-direction: column; align-items: stretch; }
+  .input-controls { width: 100%; justify-content: space-between; }
+  .input-controls select { flex: 1; max-width: 50%; font-size: 13px; padding: 7px 10px; }
+  .thinking-seg button { font-size: 12px; padding: 6px 10px; }
+  #input-bar textarea { flex: none; width: 100%; font-size: 16px; padding: 12px 14px; min-height: 200px; }
+  #input-bar button.send-btn { align-self: flex-end; padding: 10px 20px; font-size: 15px; }
+  /* Preset buttons: compact */
+  .preset-buttons { padding: 6px 10px; gap: 5px; }
+  .preset-buttons button { padding: 4px 9px; font-size: 11px; }
+}
+#input-bar textarea { flex: 1; padding: 10px 14px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 14px; outline: none; min-width: 0; min-height: 300px; max-height: 400px; resize: none; font-family: inherit; line-height: 1.4; overflow-y: auto; }
+#input-bar textarea:focus { border-color: #2563eb; }
+#input-bar textarea::placeholder { color: #64748b; }
 #input-bar button.send-btn { padding: 9px 18px; border-radius: 8px; border: none; background: #2563eb; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 #input-bar button.send-btn:hover { background: #1d4ed8; }
 #input-bar button.send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -473,6 +546,7 @@ header .tab.active { color: #e2e8f0; background: #0f172a; border-color: #334155;
         <button class="tab active" id="tab-chat" onclick="switchTab('chat')">💬 Chat</button>
         <button class="tab" id="tab-translate" onclick="switchTab('translate')">🌐 Translate</button>
       </div>
+      <button class="lang-btn" id="langToggle" onclick="toggleLang()" title="Switch language">EN</button>
     </header>
 
     <div id="chat-view">
@@ -502,17 +576,7 @@ header .tab.active { color: #e2e8f0; background: #0f172a; border-color: #334155;
     </div>
 
     <div id="input-bar">
-      <select id="modelSelect" onchange="updateModel()">
-        <option value="glm-5-turbo">glm-5-turbo</option>
-        <option value="glm-5.1">glm-5.1</option>
-        <option value="glm-4.7">glm-4.7</option>
-      </select>
-      <div class="thinking-seg" id="thinkingToggle">
-        <button data-v="off" class="active" onclick="setThinking('off')">Off</button>
-        <button data-v="minimal" onclick="setThinking('minimal')">Min</button>
-        <button data-v="high" onclick="setThinking('high')">High</button>
-      </div>
-      <input type="text" id="input" placeholder="Ask about flights, weather, advisories..." onkeypress="if(event.key=='Enter') send()" autofocus>
+      <textarea id="input" rows="1" placeholder="Ask about flights, weather, advisories..." onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();send()}" oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,400)+'px'" autofocus></textarea>
       <button class="send-btn" id="send-btn" onclick="send()">Send</button>
     </div>
     </div>
@@ -544,6 +608,7 @@ header .tab.active { color: #e2e8f0; background: #0f172a; border-color: #334155;
     </div>
   </div>
 </div>
+<div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar()"></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -551,13 +616,121 @@ const chat = document.getElementById('chat');
 const input = document.getElementById('input');
 const btn = document.getElementById('send-btn');
 const sessionList = document.getElementById('sessionList');
-const modelSelect = document.getElementById('modelSelect');
+const langBtn = document.getElementById('langToggle');
 let currentSessionId = '';
 let emailTargetText = '';
+let currentLang = 'en';
 
 // ── Sidebar toggle ────────────────────────────────────────────────────────
 function toggleSidebar() {
-  document.getElementById('sidebar').classList.toggle('collapsed');
+  const sb = document.getElementById('sidebar');
+  const bd = document.getElementById('sidebarBackdrop');
+  sb.classList.toggle('collapsed');
+  if (bd) bd.classList.toggle('show', !sb.classList.contains('collapsed'));
+}
+
+// ── Language / i18n ─────────────────────────────────────────────────────────
+
+const LANG = {
+  en: {
+    title: 'Travel Agent',
+    tabChat: '💬 Chat',
+    tabTrans: '🌐 Translate',
+    inputPlaceholder: 'Ask about flights, weather, advisories...',
+    sendBtn: 'Send',
+    sidebarTitle: 'Sessions',
+    newSession: '🆕 New session started. What can I help you plan?',
+    deleteConfirm: 'Delete this session?',
+    deleted: '🗑 Session deleted. Start a new one!',
+    loading: 'Searching...',
+    noResponse: 'No response',
+    emailTitle: '✉️ Email this info',
+    emailPlaceholder: 'you@example.com',
+    emailSend: 'Send',
+    emailCancel: 'Cancel',
+    emailSent: 'Email sent! ✉️',
+    trBtn: 'Translate',
+    trPlaceholder: 'Enter text to translate...',
+    trAuto: 'Auto-detect',
+    chatWelcome: `👋 Hi! I'm your AI travel assistant. I can help with:<br><br>
+✈️ <b>Flight prices &amp; status</b> from Vancouver<br>
+🏨 <b>Hotel search</b> at your destination<br>
+🌤️ <b>Weather forecasts</b><br>
+⚠️ <b>Travel advisories</b> (Canadian government)<br>
+💱 <b>Currency conversion</b><br>
+🔌 <b>Power plugs &amp; emergency numbers</b><br>
+🗣️ <b>Translation &amp; travel phrases</b><br><br>
+What can I help you plan?`,
+  },
+  zh: {
+    title: '旅行助手',
+    tabChat: '💬 聊天',
+    tabTrans: '🌐 翻译',
+    inputPlaceholder: '询问航班、天气、旅行建议...',
+    sendBtn: '发送',
+    sidebarTitle: '历史会话',
+    newSession: '🆕 新会话已开始。有什么可以帮您规划？',
+    deleteConfirm: '删除这个会话？',
+    deleted: '🗑 会话已删除。开始一个新会话！',
+    loading: '搜索中...',
+    noResponse: '无回复',
+    emailTitle: '✉️ 邮件发送',
+    emailPlaceholder: 'you@example.com',
+    emailSend: '发送',
+    emailCancel: '取消',
+    emailSent: '邮件已发送！✉️',
+    trBtn: '翻译',
+    trPlaceholder: '输入要翻译的文字...',
+    trAuto: '自动检测',
+    chatWelcome: `👋 您好！我是您的AI旅行助手。我可以帮助您：<br><br>
+✈️ <b>查询航班价格和状态</b>（温哥华出发）<br>
+🏨 <b>目的地酒店搜索</b><br>
+🌤️ <b>天气预报</b><br>
+⚠️ <b>旅行建议</b>（加拿大政府）<br>
+💱 <b>货币换算</b><br>
+🔌 <b>电源插头和紧急电话</b><br>
+🗣️ <b>翻译和旅行常用语</b><br><br>
+有什么可以帮您？`,
+  },
+};
+
+function t(key) { return LANG[currentLang][key] || key; }
+
+function toggleLang() {
+  currentLang = currentLang === 'en' ? 'zh' : 'en';
+  applyLang();
+}
+
+function applyLang() {
+  langBtn.textContent = currentLang === 'en' ? 'EN' : '中文';
+  document.title = t('title');
+  document.querySelector('header h1').textContent = '✈ ' + t('title');
+  document.getElementById('tab-chat').textContent = t('tabChat');
+  document.getElementById('tab-translate').textContent = t('tabTrans');
+  input.placeholder = t('inputPlaceholder');
+  document.getElementById('send-btn').textContent = t('sendBtn');
+  document.querySelector('.sidebar-header h2').textContent = t('sidebarTitle');
+  // Translate tab
+  const trBtn = document.querySelector('.tr-btn');
+  if (trBtn) trBtn.textContent = t('trBtn');
+  const trInput = document.getElementById('trInput');
+  if (trInput) trInput.placeholder = t('trPlaceholder');
+  const srcLang = document.getElementById('srcLang');
+  if (srcLang) srcLang.options[0].text = t('trAuto');
+  // Email popup
+  const epTitle = document.querySelector('.email-popup-inner div');
+  if (epTitle) epTitle.innerHTML = t('emailTitle');
+  document.getElementById('emailAddr').placeholder = t('emailPlaceholder');
+  // Re-render welcome message and presets
+  const chatEl = document.getElementById('chat');
+  chatEl.innerHTML = `<div class="msg agent">${t('chatWelcome')}</div>`;
+  shufflePrompts();
+  // Email popup buttons
+  const epBtns = document.querySelectorAll('.email-popup-inner button');
+  epBtns.forEach(b => {
+    if (b.classList.contains('send-btn')) b.textContent = t('emailSend');
+    if (b.classList.contains('cancel-btn')) b.textContent = t('emailCancel');
+  });
 }
 
 // ── Session management ─────────────────────────────────────────────────────
@@ -570,21 +743,15 @@ async function refreshSessions() {
     const div = document.createElement('div');
     div.className = 'session-item' + (s.id === currentSessionId ? ' active' : '');
     div.onclick = () => loadSessionById(s.id);
-    div.innerHTML = '<span class="title">' + escapeHtml(s.title.substring(0, 30)) + '</span>' +
-      '<span class="del" onclick="event.stopPropagation();deleteSession(\'' + s.id + '\')" title="Delete">×</span>';
+    div.innerHTML = `<span class="title">${escapeHtml(s.title.substring(0, 30))}</span>
+      <span class="del" onclick="event.stopPropagation();deleteSession('${s.id}')" title="Delete">×</span>`;
     sessionList.appendChild(div);
   });
   // Auto-select first session only if none selected
   if (sessions.length > 0 && !currentSessionId) {
     const first = sessions[0];
     currentSessionId = first.id;
-    modelSelect.value = first.model;
-    setThinkingUI(first.thinking);
     sessionList.querySelector('.session-item').classList.add('active');
-  }
-  if (!sessions.length) {
-    modelSelect.value = 'glm-5-turbo';
-    setThinkingUI('off');
   }
 }
 
@@ -598,9 +765,7 @@ async function newSession() {
   const resp = await fetch('/sessions', {method:'POST'});
   const s = await resp.json();
   currentSessionId = s.id;
-  modelSelect.value = 'glm-5-turbo';
-  setThinkingUI('off');
-  chat.innerHTML = '<div class="msg agent">🆕 New session started. What can I help you plan?</div>';
+  chat.innerHTML = `<div class="msg agent">${t('newSession')}</div>`;
   await refreshSessions();
 }
 
@@ -610,8 +775,6 @@ async function loadSessionById(sid) {
   const resp = await fetch('/sessions/' + sid);
   const data = await resp.json();
   if (data.error) return;
-  modelSelect.value = data.session.model;
-  setThinkingUI(data.session.thinking);
   chat.innerHTML = '';
   data.messages.forEach(m => addMsg(m.content, m.role));
   chat.scrollTop = chat.scrollHeight;
@@ -619,45 +782,18 @@ async function loadSessionById(sid) {
   sessionList.querySelectorAll('.session-item').forEach(el => {
     el.classList.toggle('active', el.querySelector('.title').textContent === data.session.title.substring(0, 30));
   });
+  // Auto-close sidebar on mobile
+  if (window.innerWidth <= 600) toggleSidebar();
 }
 
 async function deleteSession(sid) {
-  if (!confirm('Delete this session?')) return;
+  if (!confirm(t('deleteConfirm'))) return;
   await fetch('/sessions/' + sid, {method:'DELETE'});
   if (sid === currentSessionId) {
     currentSessionId = '';
-    chat.innerHTML = '<div class="msg agent">🗑 Session deleted. Start a new one!</div>';
+    chat.innerHTML = `<div class="msg agent">${t('deleted')}</div>`;
   }
   await refreshSessions();
-}
-
-// ── Model / Thinking ───────────────────────────────────────────────────────
-
-function getThinking() {
-  const active = document.querySelector('#thinkingToggle .active');
-  return active ? active.dataset.v : 'off';
-}
-
-function setThinking(level) {
-  document.querySelectorAll('#thinkingToggle button').forEach(b => b.classList.remove('active'));
-  const btn = document.querySelector('#thinkingToggle [data-v="' + level + '"]');
-  if (btn) btn.classList.add('active');
-  if (currentSessionId) {
-    fetch('/sessions/' + currentSessionId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({thinking:level})});
-  }
-}
-
-function setThinkingUI(level) {
-  document.querySelectorAll('#thinkingToggle button').forEach(b => b.classList.remove('active'));
-  const btn = document.querySelector('#thinkingToggle [data-v="' + level + '"]');
-  if (btn) btn.classList.add('active');
-}
-
-async function updateModel() {
-  const model = modelSelect.value;
-  if (currentSessionId) {
-    await fetch('/sessions/' + currentSessionId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({model})});
-  }
 }
 
 // ── Chat ────────────────────────────────────────────────────────────────────
@@ -689,18 +825,21 @@ async function send() {
   const msg = input.value.trim();
   if (!msg) return;
   input.value = '';
+  input.style.height = 'auto';
   btn.disabled = true;
   addMsg(msg, 'user');
-  const loading = addMsg('Searching...', 'loading');
+  const loading = addMsg(t('loading'), 'loading');
+  // Prepend language instruction for Chinese mode
+  const prompt = currentLang === 'zh' ? '(请用中文回复) ' + msg : msg;
   try {
     const resp = await fetch('/chat', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        message: msg,
+        message: prompt,
         session_id: currentSessionId,
-        model: modelSelect.value,
-        thinking: getThinking()
+        model: 'glm-5.1',
+        thinking: 'off'
       })
     });
     const data = await resp.json();
@@ -709,7 +848,7 @@ async function send() {
       currentSessionId = data.session_id;
       await refreshSessions();
     }
-    addMsg(data.reply || 'No response', 'agent');
+    addMsg(data.reply || t('noResponse'), 'agent');
   } catch(e) { loading.remove(); addMsg('Error: '+e.message, 'agent'); }
   btn.disabled = false;
   input.focus();
@@ -749,7 +888,7 @@ async function doEmail() {
   try {
     const resp = await fetch('/email', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:emailTargetText,to:addr})});
     const data = await resp.json();
-    toast(data.ok ? 'Email sent! ✉️' : 'Failed: ' + (data.error||'unknown'));
+    toast(data.ok ? t('emailSent') : 'Failed: ' + (data.error||'unknown'));
   } catch(e) { toast('Error: '+e.message); }
 }
 
@@ -790,19 +929,15 @@ async function loadLanguages() {
 }
 
 function switchTab(tab) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
   document.getElementById('tab-' + tab).classList.add('active');
-  var cv = document.getElementById('chat-view');
-  var tv = document.getElementById('translate-view');
-  if (tab === 'chat') {
-    cv.classList.remove('hidden-view');
-    tv.classList.add('hidden-view');
-    document.getElementById('input').focus();
-  } else {
-    cv.classList.add('hidden-view');
-    tv.classList.remove('hidden-view');
+  document.getElementById('chat-view').classList.toggle('hidden-view', tab !== 'chat');
+  document.getElementById('translate-view').classList.toggle('hidden-view', tab !== 'translate');
+  if (tab === 'translate') {
     loadLanguages();
     document.getElementById('trInput').focus();
+  } else {
+    document.getElementById('input').focus();
   }
 }
 
@@ -838,30 +973,31 @@ async function doTranslate() {
 
 // Dynamic preset buttons — rotate destinations
 const DYN_PROMPTS = [
-  { emoji: '🌤️', label: 'Bangkok Weather', ask: 'Weather in Bangkok this week' },
-  { emoji: '⚠️', label: 'Thailand Advisory', ask: 'Travel advisory for Thailand' },
-  { emoji: '🇯🇵', label: 'Tokyo Flights', ask: 'Flights from YVR to Tokyo under $1000' },
-  { emoji: '📖', label: 'Japan Guide', ask: 'Tell me about visiting Japan - sights, food, culture' },
-  { emoji: '🇲🇽', label: 'Mexico City Flights', ask: 'Flights from YVR to Mexico City in July' },
-  { emoji: '🇰🇷', label: 'Seoul Flights', ask: 'Flights from YVR to Seoul under $1200' },
-  { emoji: '🇬🇧', label: 'London Guide', ask: 'Tell me about visiting London - what to see and do' },
-  { emoji: '🇫🇷', label: 'Paris Weather', ask: 'Weather in Paris this week' },
-  { emoji: '🇮🇹', label: 'Italy Guide', ask: 'What should I know about visiting Italy? WikiVoyage guide' },
-  { emoji: '🇻🇳', label: 'Vietnam Flights', ask: 'Flights from YVR to Vietnam this fall' },
-  { emoji: '🇹🇭', label: 'Phuket Flights', ask: 'Flights from YVR to Phuket in December' },
-  { emoji: '🇬🇷', label: 'Greece Guide', ask: 'Best Greek islands to visit? Search Reddit' },
-  { emoji: '🇦🇺', label: 'Sydney Flights', ask: 'Flights from YVR to Sydney Australia' },
-  { emoji: '🇵🇹', label: 'Portugal Guide', ask: 'What to see in Portugal? WikiVoyage guide' },
-  { emoji: '🇨🇷', label: 'Costa Rica Flights', ask: 'Flights from YVR to Costa Rica' },
-  { emoji: '🇮🇸', label: 'Iceland Guide', ask: 'Best time to visit Iceland? Trip recommendations' },
-  { emoji: '🇭🇷', label: 'Croatia Guide', ask: 'Tell me about visiting Croatia - coast and cities' },
-  { emoji: '🇹🇷', label: 'Turkey Guide', ask: 'What to see in Istanbul and Turkey? WikiVoyage' },
-  { emoji: '🇯🇵', label: 'Osaka Guide', ask: 'Tell me about visiting Osaka Japan' },
-  { emoji: '🇪🇸', label: 'Barcelona Guide', ask: 'What to do in Barcelona Spain?' },
+  { emoji: '🌤️', labelEn: 'Bangkok Weather', askEn: 'Weather in Bangkok this week', labelZh: '曼谷天气', askZh: '曼谷这周天气怎么样' },
+  { emoji: '⚠️', labelEn: 'Thailand Advisory', askEn: 'Travel advisory for Thailand', labelZh: '泰国旅行建议', askZh: '泰国的旅行安全建议' },
+  { emoji: '🇯🇵', labelEn: 'Tokyo Flights', askEn: 'Flights from YVR to Tokyo under $1000', labelZh: '东京机票', askZh: '从温哥华到东京的航班价格' },
+  { emoji: '📖', labelEn: 'Japan Guide', askEn: 'Tell me about visiting Japan - sights, food, culture', labelZh: '日本旅游攻略', askZh: '介绍日本旅游景点、美食和文化' },
+  { emoji: '🇲🇽', labelEn: 'Mexico City Flights', askEn: 'Flights from YVR to Mexico City in July', labelZh: '墨西哥城机票', askZh: '温哥华到墨西哥城的七月机票' },
+  { emoji: '🇰🇷', labelEn: 'Seoul Flights', askEn: 'Flights from YVR to Seoul under $1200', labelZh: '首尔机票', askZh: '温哥华到首尔的机票价格' },
+  { emoji: '🇬🇧', labelEn: 'London Guide', askEn: 'Tell me about visiting London - what to see and do', labelZh: '伦敦旅游攻略', askZh: '伦敦有哪些必看景点和活动' },
+  { emoji: '🇫🇷', labelEn: 'Paris Weather', askEn: 'Weather in Paris this week', labelZh: '巴黎天气', askZh: '巴黎这周的天气' },
+  { emoji: '🇮🇹', labelEn: 'Italy Guide', askEn: 'What should I know about visiting Italy? WikiVoyage guide', labelZh: '意大利旅游攻略', askZh: '去意大利旅游需要知道什么' },
+  { emoji: '🇻🇳', labelEn: 'Vietnam Flights', askEn: 'Flights from YVR to Vietnam this fall', labelZh: '越南机票', askZh: '温哥华到越南的秋季机票' },
+  { emoji: '🇹🇭', labelEn: 'Phuket Flights', askEn: 'Flights from YVR to Phuket in December', labelZh: '普吉岛机票', askZh: '温哥华到普吉岛十二月机票' },
+  { emoji: '🇬🇷', labelEn: 'Greece Guide', askEn: 'Best Greek islands to visit? Search Reddit', labelZh: '希腊旅游攻略', askZh: '希腊哪些岛屿最好玩' },
+  { emoji: '🇦🇺', labelEn: 'Sydney Flights', askEn: 'Flights from YVR to Sydney Australia', labelZh: '悉尼机票', askZh: '温哥华到悉尼的航班' },
+  { emoji: '🇵🇹', labelEn: 'Portugal Guide', askEn: 'What to see in Portugal? WikiVoyage guide', labelZh: '葡萄牙攻略', askZh: '葡萄牙有什么好玩的地方' },
+  { emoji: '🇨🇷', labelEn: 'Costa Rica Flights', askEn: 'Flights from YVR to Costa Rica', labelZh: '哥斯达黎加机票', askZh: '温哥华到哥斯达黎加的航班' },
+  { emoji: '🇮🇸', labelEn: 'Iceland Guide', askEn: 'Best time to visit Iceland? Trip recommendations', labelZh: '冰岛旅游攻略', askZh: '冰岛最佳旅游时间' },
+  { emoji: '🇭🇷', labelEn: 'Croatia Guide', askEn: 'Tell me about visiting Croatia - coast and cities', labelZh: '克罗地亚攻略', askZh: '克罗地亚海岸和城市旅游介绍' },
+  { emoji: '🇹🇷', labelEn: 'Turkey Guide', askEn: 'What to see in Istanbul and Turkey? WikiVoyage', labelZh: '土耳其攻略', askZh: '伊斯坦布尔和土耳其有哪些景点' },
+  { emoji: '🇯🇵', labelEn: 'Osaka Guide', askEn: 'Tell me about visiting Osaka Japan', labelZh: '大阪旅游', askZh: '日本大阪旅游介绍' },
+  { emoji: '🇪🇸', labelEn: 'Barcelona Guide', askEn: 'What to do in Barcelona Spain?', labelZh: '巴塞罗那攻略', askZh: '西班牙巴塞罗那有什么好玩的' },
 ];
 
 function shufflePrompts() {
   try {
+    const isZh = currentLang === 'zh';
     const pool = [...DYN_PROMPTS];
     for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -871,12 +1007,20 @@ function shufflePrompts() {
       const p = pool[i - 1];
       const btn = document.getElementById('dyn' + i);
       if (!btn) continue;
-      btn.textContent = p.emoji + ' ' + p.label;
-      btn.onclick = function() { ask(p.ask); };
+      btn.textContent = p.emoji + ' ' + (isZh ? p.labelZh : p.labelEn);
+      btn.onclick = function() { ask(isZh ? p.askZh : p.askEn); };
     }
+    // Also translate static presets
+    document.querySelectorAll('#presets button:not([id^="dyn"])').forEach(el => {
+      if (el.textContent.includes('YVR Deals')) el.textContent = isZh ? '🎫 温哥华特价' : '🎫 YVR Deals';
+      else if (el.textContent.includes('Recommend')) el.textContent = isZh ? '🧳 推荐行程' : '🧳 Recommend a Trip';
+      else if (el.textContent.includes('Reddit')) el.textContent = isZh ? '🔍 Reddit旅行' : '🔍 Reddit Trips';
+      else if (el.textContent.includes('Cruise')) el.textContent = isZh ? '🚢 游轮优惠' : '🚢 Cruise Deals';
+    });
   } catch(e) { console.error('shufflePrompts:', e); }
 }
 
+applyLang();
 refreshSessions();
 shufflePrompts();
 </script>
@@ -886,4 +1030,4 @@ shufflePrompts();
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8091)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8092")))
