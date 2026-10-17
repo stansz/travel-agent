@@ -37,7 +37,6 @@ DEFAULT_MODEL = os.environ.get("PI_MODEL", "glm-5.3-flash")
 PI_MODEL = DEFAULT_MODEL
 DEFAULT_THINKING = os.environ.get("PI_THINKING", "high")
 PI_SKILL = "/app/web/pi-skill.md"
-HIMALAYA = os.environ.get("HIMALAYA", "himalaya")
 DB_PATH = "/app/data/sessions.db"
 LT_PORT = os.environ.get("LT_PORT", "5000")
 
@@ -147,7 +146,7 @@ async def update_session(sid: str, request: Request):
     return JSONResponse({"ok": True})
 
 
-# ── Chat / download / email ─────────────────────────────────────────────────
+# ── Chat / download ─────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
@@ -242,21 +241,6 @@ async def chat(request: Request):
     db.close()
 
     return JSONResponse({"reply": result, "session_id": session_id})
-
-
-@app.post("/email")
-async def email(request: Request):
-    body = await request.json()
-    text = body.get("text", "").strip()
-    to = body.get("to", "").strip()
-    if not text or not to:
-        return JSONResponse({"error": "Missing text or email address"}, status_code=400)
-
-    try:
-        await send_email(text, to)
-        return JSONResponse({"ok": True})
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)})
 
 
 @app.get("/api/languages")
@@ -380,31 +364,6 @@ async def run_pi(message: str, model: str | None = None, thinking: str | None = 
     return out
 
 
-async def send_email(text: str, to: str) -> None:
-    """Send markdown email via himalaya CLI."""
-    subject = "Travel Info"
-    first_line = text.strip().split("\n")[0]
-    if first_line.startswith("#"):
-        subject = first_line.lstrip("#").strip()[:80]
-    elif first_line.startswith("**") and "**" in first_line[2:]:
-        subject = first_line.strip("*").strip()[:80]
-
-    proc = await asyncio.create_subprocess_exec(
-        HIMALAYA, "write",
-        "--subject", subject,
-        "--header", "Content-Type: text/markdown; charset=utf-8",
-        to,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await asyncio.wait_for(
-        proc.communicate(input=text.encode("utf-8")), timeout=30)
-    if proc.returncode != 0:
-        err = stderr.decode("utf-8", errors="replace").strip() or "Unknown error"
-        raise RuntimeError(f"Himalaya failed: {err}")
-
-
 HTML_PAGE = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -483,13 +442,6 @@ header .tab.active { color: #e2e8f0; background: #0f172a; border-color: #334155;
 .msg-btn { padding: 4px 10px; border-radius: 6px; border: 1px solid #334155; background: transparent; color: #64748b; font-size: 12px; cursor: pointer; transition: all 0.15s; }
 .msg-btn:hover { background: #1e293b; border-color: #2563eb; color: #e2e8f0; }
 .msg-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-.email-popup { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
-.email-popup.open { display: flex; }
-.email-popup-inner { background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; width: 340px; }
-.email-popup-inner input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 14px; margin: 8px 0; }
-.email-popup-inner button { padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px; cursor: pointer; margin-right: 8px; }
-.email-popup-inner .send-btn { background: #2563eb; color: #fff; }
-.email-popup-inner .cancel-btn { background: #334155; color: #94a3b8; }
 .preset-buttons { padding: 8px 20px; display: flex; gap: 8px; flex-wrap: wrap; }
 .preset-buttons button { padding: 5px 12px; border-radius: 16px; border: 1px solid #334155; background: transparent; color: #94a3b8; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .preset-buttons button:hover { background: #1e293b; border-color: #2563eb; color: #e2e8f0; }
@@ -610,17 +562,6 @@ header .tab.active { color: #e2e8f0; background: #0f172a; border-color: #334155;
   </div>
 </div>
 
-<!-- Popups -->
-<div class="email-popup" id="emailPopup">
-  <div class="email-popup-inner">
-    <div style="color:#e2e8f0;font-weight:600;margin-bottom:4px;">✉️ Email this info</div>
-    <input type="email" id="emailAddr" placeholder="you@example.com">
-    <div style="margin-top: 12px;">
-      <button class="send-btn" onclick="doEmail()">Send</button>
-      <button class="cancel-btn" onclick="closeEmail()">Cancel</button>
-    </div>
-  </div>
-</div>
 <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar()"></div>
 <div class="toast" id="toast"></div>
 
@@ -631,7 +572,6 @@ const btn = document.getElementById('send-btn');
 const sessionList = document.getElementById('sessionList');
 const langBtn = document.getElementById('langToggle');
 let currentSessionId = '';
-let emailTargetText = '';
 let currentLang = 'en';
 
 // ── Sidebar toggle ────────────────────────────────────────────────────────
@@ -657,11 +597,6 @@ const LANG = {
     deleted: '🗑 Session deleted. Start a new one!',
     loading: 'Searching...',
     noResponse: 'No response',
-    emailTitle: '✉️ Email this info',
-    emailPlaceholder: 'you@example.com',
-    emailSend: 'Send',
-    emailCancel: 'Cancel',
-    emailSent: 'Email sent! ✉️',
     trBtn: 'Translate',
     trPlaceholder: 'Enter text to translate...',
     trAuto: 'Auto-detect',
@@ -687,11 +622,6 @@ What can I help you plan?`,
     deleted: '🗑 会话已删除。开始一个新会话！',
     loading: '搜索中...',
     noResponse: '无回复',
-    emailTitle: '✉️ 邮件发送',
-    emailPlaceholder: 'you@example.com',
-    emailSend: '发送',
-    emailCancel: '取消',
-    emailSent: '邮件已发送！✉️',
     trBtn: '翻译',
     trPlaceholder: '输入要翻译的文字...',
     trAuto: '自动检测',
@@ -730,20 +660,10 @@ function applyLang() {
   if (trInput) trInput.placeholder = t('trPlaceholder');
   const srcLang = document.getElementById('srcLang');
   if (srcLang) srcLang.options[0].text = t('trAuto');
-  // Email popup
-  const epTitle = document.querySelector('.email-popup-inner div');
-  if (epTitle) epTitle.innerHTML = t('emailTitle');
-  document.getElementById('emailAddr').placeholder = t('emailPlaceholder');
   // Re-render welcome message and presets
   const chatEl = document.getElementById('chat');
   chatEl.innerHTML = `<div class="msg agent">${t('chatWelcome')}</div>`;
   shufflePrompts();
-  // Email popup buttons
-  const epBtns = document.querySelectorAll('.email-popup-inner button');
-  epBtns.forEach(b => {
-    if (b.classList.contains('send-btn')) b.textContent = t('emailSend');
-    if (b.classList.contains('cancel-btn')) b.textContent = t('emailCancel');
-  });
 }
 
 // ── Session management ─────────────────────────────────────────────────────
@@ -824,7 +744,7 @@ function addMsg(text, role) {
     const rawText = text;
     const actions = document.createElement('div');
     actions.className = 'msg-actions';
-    actions.innerHTML = '<button class="msg-btn" title="Download as Markdown" onclick="downloadMd(this)">📥 .md</button> <button class="msg-btn" title="Download as Word Doc" onclick="downloadDocx(this)">📄 .docx</button> <button class="msg-btn" title="Email this" onclick="promptEmail(this)">✉️ Email</button>';
+    actions.innerHTML = '<button class="msg-btn" title="Download as Markdown" onclick="downloadMd(this)">📥 .md</button> <button class="msg-btn" title="Download as Word Doc" onclick="downloadDocx(this)">📄 .docx</button>';
     actions.dataset.text = rawText;
     div.appendChild(actions);
   }
@@ -884,25 +804,6 @@ async function downloadDocx(btn) {
   const a = document.createElement('a');
   a.href = url; a.download = 'travel-info.docx'; a.click();
   URL.revokeObjectURL(url);
-}
-
-function promptEmail(btn) {
-  emailTargetText = btn.parentElement.dataset.text;
-  document.getElementById('emailPopup').classList.add('open');
-  document.getElementById('emailAddr').focus();
-}
-
-function closeEmail() { document.getElementById('emailPopup').classList.remove('open'); }
-
-async function doEmail() {
-  const addr = document.getElementById('emailAddr').value.trim();
-  if (!addr) return;
-  closeEmail();
-  try {
-    const resp = await fetch('/email', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:emailTargetText,to:addr})});
-    const data = await resp.json();
-    toast(data.ok ? t('emailSent') : 'Failed: ' + (data.error||'unknown'));
-  } catch(e) { toast('Error: '+e.message); }
 }
 
 function toast(msg) {
