@@ -42,11 +42,49 @@ Tools:
 """
 
 import argparse
+import base64
+import json
+import os
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parent.parent.parent  # skills/travel/
+
+
+def _env(name: str, default: str = "") -> str:
+    """Read a setting from the environment, falling back to ~/.hermes/.env."""
+    if os.environ.get(name):
+        return os.environ[name]
+    env_file = Path.home() / ".hermes" / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                if k.strip() == name and v.strip():
+                    return v.strip()
+    return default
+
+
+def searx_json(query: str, extra: str = "&categories=general&pageno=1", timeout: int = 15) -> dict:
+    """Query SearXNG (SEARXNG_URL, basic-auth aware) and return parsed JSON."""
+    base = _env("SEARXNG_URL", "http://127.0.0.1:8080")
+    p = urllib.parse.urlparse(base)
+    netloc = p.hostname or "127.0.0.1"
+    if p.port:
+        netloc = f"{netloc}:{p.port}"
+    url = (f"{p.scheme or 'http'}://{netloc}/search?"
+           f"q={urllib.parse.quote(query)}&format=json{extra}")
+    req = urllib.request.Request(url, headers={"User-Agent": "TravelAgent/1.0"})
+    if p.username:
+        cred = f"{urllib.parse.unquote(p.username)}:{urllib.parse.unquote(p.password or '')}"
+        req.add_header("Authorization", "Basic " + base64.b64encode(cred.encode()).decode())
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
 
 
 def run_script(rel_path: str, *args: str) -> int:
@@ -237,13 +275,8 @@ def cmd_reddit(args):
     site_query = " OR ".join([f"site:reddit.com/{s}" for s in sub_list])
     search_query = f"{site_query} {query}"
 
-    encoded = urllib.parse.quote(search_query)
-    searx_url = f"http://127.0.0.1:8080/search?q={encoded}&format=json&categories=general&pageno=1"
-
     try:
-        req = urllib.request.Request(searx_url, headers={"User-Agent": "TravelAgent/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
+        data = searx_json(search_query)
     except Exception as e:
         print(f"Search failed: {e}")
         return 1
@@ -346,12 +379,8 @@ def cmd_cruise(args):
 
     all_results = []
     for q in base_queries[:2]:  # Run top 2 queries
-        q_enc = urllib.parse.quote(q)
-        searx_url = f"http://127.0.0.1:8080/search?q={q_enc}&format=json&categories=general&pageno=1"
         try:
-            req = urllib.request.Request(searx_url, headers={"User-Agent": "TravelAgent/1.0"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read())
+            data = searx_json(q)
             results = data.get("results", [])
             # Prioritize Canadian/booking sites
             ca_sites = ("expedia.ca", "cruisecritic", "costcotravel", "redtag.ca", "vacationstogo",
@@ -422,14 +451,10 @@ def cmd_recommend(args):
         queries = [f"{base} 2026 {budget}", f"underrated travel destinations 2026"]
 
     search_query = f"site:reddit.com/r/travel ({' OR '.join(queries[:2])})"
-    encoded = urllib.parse.quote(search_query)
     limit = min(args.limit or 6, 15)
-    searx_url = f"http://127.0.0.1:8080/search?q={encoded}&format=json&categories=general&pageno=1"
 
     try:
-        req = urllib.request.Request(searx_url, headers={"User-Agent": "TravelAgent/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
+        data = searx_json(search_query)
     except Exception as e:
         print(f"Search failed: {e}")
         return 1

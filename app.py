@@ -30,7 +30,12 @@ app.add_middleware(NoCacheMiddleware)
 
 PI_CMD = "pi"
 PI_PROVIDER = os.environ.get("PI_PROVIDER", "zai")
-PI_MODEL = os.environ.get("PI_MODEL", "glm-5-turbo")
+
+# glm-5.3-flash always engages in thinking: "off"/"minimal" are rejected by the
+# provider (HTTP 400), so the defaults below must never be "off".
+DEFAULT_MODEL = os.environ.get("PI_MODEL", "glm-5.3-flash")
+PI_MODEL = DEFAULT_MODEL
+DEFAULT_THINKING = os.environ.get("PI_THINKING", "high")
 PI_SKILL = "/app/web/pi-skill.md"
 HIMALAYA = os.environ.get("HIMALAYA", "himalaya")
 DB_PATH = "/app/data/sessions.db"
@@ -38,8 +43,8 @@ LT_PORT = os.environ.get("LT_PORT", "5000")
 
 os.makedirs("/app/data", exist_ok=True)
 
-MODELS = ["glm-5-turbo", "glm-5.1", "glm-4.7"]
-THINKING_LEVELS = ["off", "minimal", "high"]
+MODELS = ["glm-5.3-flash", "glm-5-turbo", "glm-5.1", "glm-4.7"]
+THINKING_LEVELS = ["low", "medium", "high", "xhigh"]
 
 with open(PI_SKILL) as f:
     TRAVEL_SYSTEM_PROMPT = f.read()
@@ -60,8 +65,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY,
             title TEXT DEFAULT 'New Session',
-            model TEXT DEFAULT 'glm-5-turbo',
-            thinking TEXT DEFAULT 'off',
+            model TEXT DEFAULT 'glm-5.3-flash',
+            thinking TEXT DEFAULT 'high',
             created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS messages (
@@ -100,7 +105,7 @@ async def create_session():
     db.execute("INSERT INTO sessions(id, title, created_at) VALUES(?, ?, ?)", (sid, "New Session", now))
     db.commit()
     db.close()
-    return JSONResponse({"id": sid, "title": "New Session", "model": "glm-5-turbo", "thinking": "off", "created_at": now})
+    return JSONResponse({"id": sid, "title": "New Session", "model": DEFAULT_MODEL, "thinking": DEFAULT_THINKING, "created_at": now})
 
 
 @app.get("/sessions/{sid}")
@@ -184,7 +189,7 @@ async def chat(request: Request):
     message = body.get("message", "").strip()
     session_id = body.get("session_id", "")
     model = body.get("model", PI_MODEL)
-    thinking = body.get("thinking", "off")
+    thinking = body.get("thinking", DEFAULT_THINKING)
 
     if not message:
         return JSONResponse({"error": "empty message"}, status_code=400)
@@ -192,7 +197,7 @@ async def chat(request: Request):
     if model not in MODELS:
         model = PI_MODEL
     if thinking not in THINKING_LEVELS:
-        thinking = "off"
+        thinking = DEFAULT_THINKING
 
     # Auto-create session if needed
     db = get_db()
@@ -350,7 +355,9 @@ def markdown_to_docx(md_text: str) -> bytes:
     return buf.getvalue()
 
 
-async def run_pi(message: str, model: str = PI_MODEL, thinking: str = "off") -> str:
+async def run_pi(message: str, model: str | None = None, thinking: str | None = None) -> str:
+    model = model or PI_MODEL
+    thinking = thinking or DEFAULT_THINKING
     cmd = [
         PI_CMD, "--provider", PI_PROVIDER, "--model", model,
         "--no-session", "--no-builtin-tools", "--no-skills",
@@ -364,7 +371,13 @@ async def run_pi(message: str, model: str = PI_MODEL, thinking: str = "off") -> 
     except asyncio.TimeoutError:
         proc.kill()
         return "Sorry, the travel search took too long. Please try a more specific query."
-    return stdout.decode("utf-8", errors="replace").strip() or "I couldn't find any results for that query."
+    out = stdout.decode("utf-8", errors="replace").strip()
+    err = stderr.decode("utf-8", errors="replace").strip()
+    if not out:
+        # Surface the real reason (provider/CLI errors go to stderr) instead of a
+        # silent "no results".
+        return f"⚠️ The agent returned nothing. Details: {err or 'no output (exit ' + str(proc.returncode) + ')'}"
+    return out
 
 
 async def send_email(text: str, to: str) -> None:
@@ -838,8 +851,8 @@ async function send() {
       body:JSON.stringify({
         message: prompt,
         session_id: currentSessionId,
-        model: 'glm-5.1',
-        thinking: 'off'
+        model: '__DEFAULT_MODEL__',
+        thinking: '__DEFAULT_THINKING__'
       })
     });
     const data = await resp.json();
@@ -1026,6 +1039,9 @@ shufflePrompts();
 </script>
 </body>
 </html>"""
+
+HTML_PAGE = HTML_PAGE.replace("__DEFAULT_MODEL__", DEFAULT_MODEL).replace(
+    "__DEFAULT_THINKING__", DEFAULT_THINKING)
 
 
 if __name__ == "__main__":
