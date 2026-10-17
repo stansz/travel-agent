@@ -6,35 +6,39 @@ Wants=network-online.target
 [Container]
 Image=localhost/travel-agent:latest
 ContainerName=travel-agent
+Pull=never
 
-# Host networking — shares host network stack, can reach 127.0.0.1:5000 (LibreTranslate)
-Network=host
+# Port
+PublishPort=127.0.0.1:8092:8092
 
-# Mount travel skills (read-only for safety)
-Volume=/home/ubuntu/.hermes/skills/travel:/app/travel:ro
+# App code (read-only)
+Volume=/home/sz/travel-agent/app.py:/app/web/app.py:ro
+Volume=/home/sz/travel-agent/pi-skill.md:/app/web/pi-skill.md:ro
 
-# Mount app.py + Pi skill + data dir (data needs rw for sessions DB)
-Volume=/home/ubuntu/.hermes/skills/travel/travel-agent/web/app.py:/app/web/app.py:ro
-Volume=/home/ubuntu/.hermes/skills/travel/travel-agent/web/pi-skill.md:/app/web/pi-skill.md:ro
-Volume=/home/ubuntu/.hermes/skills/travel/travel-agent/data:/app/data
+# Travel skill tree: travel.py + sibling scripts (airlabs, aviationstack,
+# yvr-deals, libretranslate, travel-utils, travel-advisories, travelpayouts).
+# travel.py resolves SKILL_DIR from its own path, so it must live at
+# /app/travel/travel-agent/scripts/travel.py for the siblings to be found.
+Volume=/home/sz/.hermes/skills/travel:/app/travel:ro
+# Repo copy is the source of truth; shadows the skills copy above
+Volume=/home/sz/travel-agent/travel.py:/app/travel/travel-agent/scripts/travel.py:ro
 
-# Mount .env for API keys
-Volume=/home/ubuntu/.hermes/.env:/app/.env:ro
+# API keys for the skill scripts (they read $HOME/.hermes/.env)
+Volume=/home/sz/.hermes/.env:/root/.hermes/.env:ro
 
-# Mount Pi config from host (needs read-write for session locks)
-Volume=/home/ubuntu/.pi:/root/.pi
+# Data dir (read-write for sessions DB)
+Volume=/home/sz/travel-agent/data:/app/data
 
-# Mount himalaya for email
-Volume=/home/ubuntu/.hermes/workspace/bin/himalaya:/usr/local/bin/himalaya:ro
-Volume=/home/ubuntu/.config/himalaya:/root/.config/himalaya:ro
+# Pi config
+Volume=/home/sz/.pi:/root/.pi
 
 # Environment
 Environment=HOME=/root
+Environment=PORT=8092
 Environment=PI_PROVIDER=zai
-Environment=PI_MODEL=glm-5-turbo
+Environment=PI_MODEL=glm-5.3-flash
+Environment=PI_THINKING=high
 Environment=ZAI_API_KEY=7e41ed7a82274cc3844fd28a6e51fa82.f27g2vYEPnZseZiL
-
-Pull=never
 
 [Service]
 Restart=always
